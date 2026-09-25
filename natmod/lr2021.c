@@ -215,9 +215,17 @@ static mp_obj_t mod_flrc_per_permille(mp_obj_t sent, mp_obj_t received) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mod_flrc_per_permille_obj, mod_flrc_per_permille);
 
-// The edge is a parameter rather than a constant as in the LR1121 shim: the
-// radio's DIO8 rises, but the only pin on this board that can be triggered by
-// hand is the BOOT button, which falls.
+// The chip's DIO pin, brought to Python. The edge is a parameter rather than a
+// constant as in the LR1121 shim: the radio's DIO8 rises, but the only pin on
+// this board that can be triggered by hand is the BOOT button, which falls.
+//
+// Stock CircuitPython has no way for a native module to register an interrupt,
+// so these two exist only where the tree carries the pin-interrupt patch. The
+// rest of the driver does not depend on them: polling is the portable path,
+// and `watch()` says so when the names are absent. They are registered from
+// `mpy_init` rather than through LR2021_EXPORTS because a preprocessor
+// conditional cannot live inside a macro definition.
+#ifdef MP_PIN_INTERRUPT_RISING
 static mp_obj_t mod_attach_irq(mp_obj_t pin, mp_obj_t handler, mp_obj_t edge) {
     if (!mp_pin_interrupt_attach(pin, mp_obj_get_int(edge), handler, pin)) {
         mp_raise_msg(&mp_type_RuntimeError,
@@ -232,6 +240,7 @@ static mp_obj_t mod_detach_irq(mp_obj_t pin) {
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_detach_irq_obj, mod_detach_irq);
+#endif
 
 // -------------------------------------------------------------------- system
 
@@ -588,8 +597,6 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mod_lora_set_cad_obj, mod_lora_set_cad);
     FUN(MP_QSTR_flrc_modulation_params, mod_flrc_modulation_params_obj) \
     FUN(MP_QSTR_flrc_goodput_bps, mod_flrc_goodput_bps_obj) \
     FUN(MP_QSTR_flrc_per_permille, mod_flrc_per_permille_obj) \
-    FUN(MP_QSTR_attach_irq, mod_attach_irq_obj) \
-    FUN(MP_QSTR_detach_irq, mod_detach_irq_obj) \
     \
     FUN(MP_QSTR_wait_ready, mod_wait_ready_obj) \
     FUN(MP_QSTR_get_status, mod_get_status_obj) \
@@ -641,8 +648,14 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mod_lora_set_cad_obj, mod_lora_set_cad);
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY
     LR2021_EXPORTS(LR2021_REGISTER)
+    // Absent on a stock tree, along with the two functions above. Python asks
+    // with hasattr rather than assuming, so leaving them unset is the signal.
+#ifdef MP_PIN_INTERRUPT_RISING
+    mp_store_global(MP_QSTR_attach_irq, MP_OBJ_FROM_PTR(&mod_attach_irq_obj));
+    mp_store_global(MP_QSTR_detach_irq, MP_OBJ_FROM_PTR(&mod_detach_irq_obj));
     mp_store_global(MP_QSTR_IRQ_RISING, MP_OBJ_NEW_SMALL_INT(MP_PIN_INTERRUPT_RISING));
     mp_store_global(MP_QSTR_IRQ_FALLING, MP_OBJ_NEW_SMALL_INT(MP_PIN_INTERRUPT_FALLING));
     mp_store_global(MP_QSTR_IRQ_BOTH, MP_OBJ_NEW_SMALL_INT(MP_PIN_INTERRUPT_BOTH));
+#endif
     MP_DYNRUNTIME_INIT_EXIT
 }
