@@ -11,8 +11,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      circuitpython_repo:
+        description: CircuitPython fork carrying the Rust natmod linker patches
+        required: false
       circuitpython_ref:
-        description: CircuitPython ref to build the toolchain from
+        description: Ref within that fork
         required: false
       hal_ref:
         description: Ref of lrxxxx-hal to build against
@@ -25,5 +28,6 @@ jobs:
   build:
     uses: ./.github/workflows/build.yml
     with:
-      circuitpython_ref: ${{ inputs.circuitpython_ref || 'main' }}
+      circuitpython_repo: ${{ inputs.circuitpython_repo || 'fede2cr/circuitpython' }}
+      circuitpython_ref: ${{ inputs.circuitpython_ref || 'rust' }}
       hal_ref: ${{ inputs.hal_ref || 'main' }}

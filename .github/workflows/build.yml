@@ -16,16 +16,29 @@
 # version byte and the firmware refuses a file that does not match, so this has
 # to be a tree whose format agrees with the firmware people load this on. Bump
 # it deliberately and read the "mpy version" line in the job summary.
+#
+# THIS WILL NOT BUILD AGAINST STOCK CIRCUITPYTHON, and unlike the LR1121 module
+# there is no conditional that makes it degrade gracefully. That module is
+# Cortex-M and links its Rust core with the stock `tools/mpy_ld.py`; this one is
+# Xtensa, where stock `mpy_ld.py` asserts on the relocations rustc emits --
+# LLVM writes R_XTENSA_NONE no-op entries that GAS does not, and encodes `l32r`
+# differently. The fix is in the host linker script rather than in any source
+# file here, so it cannot be carried in this repository. Point
+# circuitpython_repo at a tree that has it.
 
 name: build
 
 on:
   workflow_call:
     inputs:
-      circuitpython_ref:
-        description: CircuitPython ref to build the toolchain from
+      circuitpython_repo:
+        description: CircuitPython fork carrying the Rust natmod linker patches
         type: string
-        default: main
+        default: fede2cr/circuitpython
+      circuitpython_ref:
+        description: Ref within that fork
+        type: string
+        default: rust
       hal_repository:
         description: Repository holding the shared lrxxxx-hal crate
         type: string
@@ -63,7 +76,7 @@ jobs:
       - name: Check out CircuitPython
         uses: actions/checkout@v7
         with:
-          repository: adafruit/circuitpython
+          repository: ${{ inputs.circuitpython_repo }}
           ref: ${{ inputs.circuitpython_ref }}
           path: circuitpython
           # The port submodules are most of the download and none are needed
