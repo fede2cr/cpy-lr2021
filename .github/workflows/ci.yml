@@ -29,5 +29,5 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       circuitpython_repo: ${{ inputs.circuitpython_repo || 'fede2cr/circuitpython' }}
-      circuitpython_ref: ${{ inputs.circuitpython_ref || 'rust' }}
+      circuitpython_ref: ${{ inputs.circuitpython_ref || 'cpy-rust' }}
       hal_ref: ${{ inputs.hal_ref || 'main' }}

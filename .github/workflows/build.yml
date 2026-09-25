@@ -17,14 +17,19 @@
 # to be a tree whose format agrees with the firmware people load this on. Bump
 # it deliberately and read the "mpy version" line in the job summary.
 #
-# THIS WILL NOT BUILD AGAINST STOCK CIRCUITPYTHON, and unlike the LR1121 module
-# there is no conditional that makes it degrade gracefully. That module is
-# Cortex-M and links its Rust core with the stock `tools/mpy_ld.py`; this one is
-# Xtensa, where stock `mpy_ld.py` asserts on the relocations rustc emits --
-# LLVM writes R_XTENSA_NONE no-op entries that GAS does not, and encodes `l32r`
-# differently. The fix is in the host linker script rather than in any source
-# file here, so it cannot be carried in this repository. Point
-# circuitpython_repo at a tree that has it.
+# THIS WILL NOT BUILD AGAINST STOCK CIRCUITPYTHON. That is not a conditional
+# this repository can carry: the LR1121 module is Cortex-M and links its Rust
+# core with the stock `tools/mpy_ld.py`, but this one is Xtensa, where stock
+# `mpy_ld.py` asserts on the relocations rustc emits -- LLVM writes
+# R_XTENSA_NONE no-op entries that GAS does not, encodes `l32r` differently,
+# and puts the jump table of a dense `match` in .rodata. The fix is in the host
+# linker script rather than in any source file here.
+#
+# `cpy-rust` carries those linker fixes but not the pin-interrupt glue, which
+# lives on another branch. That is deliberate and costs nothing here: the two
+# functions that need it are behind `#ifdef MP_PIN_INTERRUPT_RISING`, so on
+# this branch they simply are not compiled or exported, and Python falls back
+# to polling. Building against a tree that has the glue adds them back.
 
 name: build
 
@@ -38,7 +43,7 @@ on:
       circuitpython_ref:
         description: Ref within that fork
         type: string
-        default: rust
+        default: cpy-rust
       hal_repository:
         description: Repository holding the shared lrxxxx-hal crate
         type: string
