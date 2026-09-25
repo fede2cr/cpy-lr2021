@@ -1,0 +1,181 @@
+# Builds lr2021.mpy and runs the tests.
+#
+# No trigger of its own: ci.yml calls it on every push and release.yml calls it
+# on a tag, so a release is built the way CI already proved the branch builds.
+#
+# One architecture, not three. The LR1121 module ships for every Cortex-M
+# because its boards vary; this driver's board is the Meshnology W12, so
+# `xtensawin` is the only instruction set that can run it. Offering untested
+# builds for CPUs no LR2021 board uses would be noise.
+#
+# Two checkouts, because the crate depends on `lrxxxx-hal` by path. Until that
+# crate is published this workflow has to fetch it next door, and `hal_ref` is
+# how a change to the shared transport gets tested here before it is tagged.
+#
+# circuitpython_ref matters more than it looks. A native .mpy carries a format
+# version byte and the firmware refuses a file that does not match, so this has
+# to be a tree whose format agrees with the firmware people load this on. Bump
+# it deliberately and read the "mpy version" line in the job summary.
+
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      circuitpython_ref:
+        description: CircuitPython ref to build the toolchain from
+        type: string
+        default: main
+      hal_repository:
+        description: Repository holding the shared lrxxxx-hal crate
+        type: string
+        default: meshnology/lrxxxx-hal
+      hal_ref:
+        description: Ref of lrxxxx-hal to build against
+        type: string
+        default: main
+      version:
+        description: Version used to name the asset; a release passes its tag
+        type: string
+        default: 0.0.0+dev
+
+permissions:
+  contents: read
+
+jobs:
+  mpy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: lr2021
+          persist-credentials: false
+
+      - name: Check out the shared HAL
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.hal_repository }}
+          ref: ${{ inputs.hal_ref }}
+          # Beside the driver, because Cargo.toml reaches it as ../lrxxxx-hal.
+          path: lrxxxx-hal
+          persist-credentials: false
+
+      - name: Check out CircuitPython
+        uses: actions/checkout@v7
+        with:
+          repository: adafruit/circuitpython
+          ref: ${{ inputs.circuitpython_ref }}
+          path: circuitpython
+          # The port submodules are most of the download and none are needed
+          # here; the one that is gets fetched below.
+          submodules: false
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch the CircuitPython tags
+        # The build stamps a version from `git describe`, which needs tags and
+        # enough history to reach one. A depth-1 checkout has neither.
+        run: make -C circuitpython fetch-tags
+
+      - name: Fetch the huffman submodule
+        # py/maketranslationdata.py puts tools/huffman on sys.path, so
+        # mpy-cross does not build without it.
+        run: git -C circuitpython submodule update --init --depth 1 tools/huffman
+
+      # Upstream rustc has no Xtensa backend, so this is the `esp` fork rather
+      # than a target added to nightly.
+      - name: Install the Xtensa Rust toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          default: true
+          buildtargets: esp32s3
+          ldproxy: false
+
+      # The Rust fork brings its own LLVM but no binutils, and the natmod link
+      # needs `ld -r`, `ar` and `objcopy` for the S3 specifically: the generic
+      # xtensa-esp-elf driver has no chip dynconfig and builds big-endian.
+      - name: Install the Xtensa binutils
+        uses: espressif/install-esp-idf-action@v1
+        with:
+          version: v5.3
+          tools: xtensa-esp-elf
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the Python build dependencies
+        # Both are for the natmod link: pyelftools reads the crate's ELF
+        # objects, and `ar` is how tools/ar_util.py opens a .a archive.
+        run: pip install pyelftools ar
+
+      - name: Build mpy-cross
+        run: make -C circuitpython/mpy-cross -j"$(nproc)"
+
+      - name: Build lr2021.mpy
+        working-directory: lr2021/natmod
+        run: make MPY_DIR="$GITHUB_WORKSPACE/circuitpython" PYTHON=python3
+
+      - name: Name the asset after the version
+        working-directory: lr2021/natmod
+        env:
+          VERSION: ${{ inputs.version }}
+        run: mv lr2021.mpy "lr2021-${VERSION#v}-xtensawin.mpy"
+
+      - name: Record what was built
+        working-directory: lr2021/natmod
+        env:
+          CIRCUITPYTHON_REF: ${{ inputs.circuitpython_ref }}
+          HAL_REF: ${{ inputs.hal_ref }}
+        run: |
+          file=$(ls lr2021-*.mpy)
+          # Byte 2 of a .mpy is the format version the firmware checks against.
+          mpy=$(od -An -tu1 -j2 -N1 "$file" | tr -d ' ')
+          {
+            echo "### xtensawin"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| file | \`$file\` |"
+            echo "| bytes | $(stat -c%s "$file") |"
+            echo "| mpy version | $mpy |"
+            echo "| CircuitPython | \`$CIRCUITPYTHON_REF\` |"
+            echo "| lrxxxx-hal | \`$HAL_REF\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lr2021-xtensawin
+          path: lr2021/natmod/lr2021-*.mpy
+          if-no-files-found: error
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: lr2021
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.hal_repository }}
+          ref: ${{ inputs.hal_ref }}
+          path: lrxxxx-hal
+          persist-credentials: false
+
+      # Host tests build for the host, so plain nightly -- the Xtensa fork is
+      # only needed for the target build above.
+      - run: rustup toolchain install nightly --component rust-src
+
+      - run: cargo +nightly test --lib
+        working-directory: lr2021
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The examples are the only Python here, and they are what someone
+      # copies onto a board; a syntax error in them is a bad first impression.
+      - run: python -m compileall -q examples
+        working-directory: lr2021

@@ -1,0 +1,53 @@
+# Attaches lr2021.mpy to a GitHub release on a v* tag.
+#
+# The build lives in build.yml, which ci.yml already runs on every push; this
+# re-runs it with the tag as the asset version and publishes the result. The
+# build has to succeed and the tests have to pass, or nothing is released.
+#
+# The tag names the asset but is not compiled into the module: unlike the
+# LR1121 driver there is no `__version__` yet, because there is no Python layer
+# to carry one. Ask the file, not the board, which version it is.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: assets/*.mpy
+          generate_release_notes: true
+          body: |
+            Copy the `.mpy` into the CIRCUITPY drive's `lib/`, renamed to
+            `lr2021.mpy`.
+
+            One architecture only: `xtensawin`, for the ESP32-S3. This driver's
+            board is the Meshnology W12, and a native `.mpy` is machine code,
+            so there is nothing to offer for other CPUs.
+
+            The firmware must be built with `CIRCUITPY_ENABLE_MPY_NATIVE=1`, or
+            the import fails with "native code in .mpy unsupported".
+
+            The module is FLRC arithmetic. Driving the radio is still done from
+            Python -- see `examples/flrc_link/`.

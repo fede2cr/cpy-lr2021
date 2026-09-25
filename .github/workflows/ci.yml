@@ -1,0 +1,29 @@
+# Builds and tests every push and pull request. Nothing is published here --
+# release.yml runs the same build.yml on a v* tag and attaches its artifacts.
+#
+# Tags are excluded so a tag push does not build twice.
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      circuitpython_ref:
+        description: CircuitPython ref to build the toolchain from
+        required: false
+      hal_ref:
+        description: Ref of lrxxxx-hal to build against
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      circuitpython_ref: ${{ inputs.circuitpython_ref || 'main' }}
+      hal_ref: ${{ inputs.hal_ref || 'main' }}

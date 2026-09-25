@@ -1,0 +1,34 @@
+cargo-features = ["panic-immediate-abort"]
+
+[package]
+name = "lr2021"
+#: The released version is the git tag. This is what an untagged build calls itself.
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "Semtech LR2021 driver core for a CircuitPython native module"
+repository = "https://github.com/fede2cr/circuitpython-lr2021"
+
+# Its own workspace, like lr1121: this directory is published on its own, and a
+# crate that inherits a workspace root above it cannot be.
+[workspace]
+
+[dependencies]
+# Transport and host vtable, shared with the LR1121 driver.
+lrxxxx-hal = { path = "../lrxxxx-hal" }
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+# `cargo test` forces panic=unwind on library targets, which a no_std staticlib
+# cannot link, and there are no runnable examples.
+doctest = false
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+# Panic messages and their location statics land in .rodata, which the native
+# .mpy linker cannot relocate; immediate-abort keeps them out.
+panic = "immediate-abort"
+opt-level = "z"
+codegen-units = 1
