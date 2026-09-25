@@ -7,7 +7,7 @@ version = "0.0.0"
 edition = "2021"
 license = "MIT"
 description = "Semtech LR2021 driver core for a CircuitPython native module"
-repository = "https://github.com/fede2cr/circuitpython-lr2021"
+repository = "https://github.com/fede2cr/cpy-lr2021"
 
 # Its own workspace, like lr1121: this directory is published on its own, and a
 # crate that inherits a workspace root above it cannot be.

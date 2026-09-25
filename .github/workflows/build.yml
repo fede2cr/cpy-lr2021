@@ -29,7 +29,7 @@ on:
       hal_repository:
         description: Repository holding the shared lrxxxx-hal crate
         type: string
-        default: meshnology/lrxxxx-hal
+        default: fede2cr/cpy-lrxxxx-hal
       hal_ref:
         description: Ref of lrxxxx-hal to build against
         type: string
