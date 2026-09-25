@@ -108,13 +108,41 @@ jobs:
       # first one found. It is a cross assembler and has no `--64`, so a
       # mpy-cross built after that step dies on "as: unrecognized option
       # '--64'". A step cannot be polluted by a PATH it is sequenced before.
+      - name: Work out the CircuitPython version
+        # `make fetch-tags` above deepens adafruit's history, and for the LR1121
+        # module that is enough: it builds against adafruit directly, so the
+        # `git describe --first-parent` in py/version.py walks commits the fetch
+        # brought in. This module builds against a fork branch, where the tip's
+        # first parent is a fork commit that fetch-tags never fetches. Describe
+        # hits the shallow boundary, falls back to a bare hash, and
+        # py/makeversionhdr.py rejects it -- "Cannot determine version", telling
+        # us to run the fetch we just ran.
+        #
+        # The merge's *second* parent is an adafruit commit, so dropping
+        # --first-parent finds a real tag in exactly the history fetch-tags
+        # brought. CP_VERSION is the tree's own override, read before git is
+        # consulted at all. Exported for every later step rather than just the
+        # mpy-cross build, so nothing else can trip over the same shallow edge.
+        #
+        # The fallback is bare digits because makeversionhdr.py splits this on
+        # "." and emits the first three parts as C integer literals; anything
+        # else becomes a compile error rather than a wrong version.
+        run: |
+          version=$(git -C circuitpython describe --tags --always --match '[!v]*' 2>/dev/null || true)
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) version=0.0.0 ;;
+          esac
+          echo "CircuitPython version: $version"
+          echo "CP_VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Build mpy-cross
         run: make -C circuitpython/mpy-cross -j"$(nproc)"
 
       # Upstream rustc has no Xtensa backend, so this is the `esp` fork rather
       # than a target added to nightly.
       - name: Install the Xtensa Rust toolchain
-        uses: esp-rs/xtensa-toolchain@v1.5
+        uses: esp-rs/xtensa-toolchain@v1.7
         with:
           default: true
           buildtargets: esp32s3
@@ -154,6 +182,7 @@ jobs:
       - name: Record what was built
         working-directory: lr2021/natmod
         env:
+          CIRCUITPYTHON_REPO: ${{ inputs.circuitpython_repo }}
           CIRCUITPYTHON_REF: ${{ inputs.circuitpython_ref }}
           HAL_REF: ${{ inputs.hal_ref }}
         run: |
@@ -168,7 +197,8 @@ jobs:
             echo "| file | \`$file\` |"
             echo "| bytes | $(stat -c%s "$file") |"
             echo "| mpy version | $mpy |"
-            echo "| CircuitPython | \`$CIRCUITPYTHON_REF\` |"
+            echo "| CircuitPython | \`$CIRCUITPYTHON_REPO@$CIRCUITPYTHON_REF\` |"
+            echo "| CircuitPython version | \`$CP_VERSION\` |"
             echo "| lrxxxx-hal | \`$HAL_REF\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
