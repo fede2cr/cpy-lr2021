@@ -82,6 +82,17 @@ jobs:
         # mpy-cross does not build without it.
         run: git -C circuitpython submodule update --init --depth 1 tools/huffman
 
+      # Before the Xtensa toolchains, and that ordering is load-bearing.
+      # mpy-cross is a host binary: gcc compiles py/nlrx64.c and hands the
+      # result to whichever `as` it finds on PATH. The IDF install below
+      # prepends its tools, three of which are <prefix>/<target>/bin
+      # directories holding *unprefixed* binutils -- esp32ulp-elf's `as` is the
+      # first one found. It is a cross assembler and has no `--64`, so a
+      # mpy-cross built after that step dies on "as: unrecognized option
+      # '--64'". A step cannot be polluted by a PATH it is sequenced before.
+      - name: Build mpy-cross
+        run: make -C circuitpython/mpy-cross -j"$(nproc)"
+
       # Upstream rustc has no Xtensa backend, so this is the `esp` fork rather
       # than a target added to nightly.
       - name: Install the Xtensa Rust toolchain
@@ -106,11 +117,11 @@ jobs:
 
       - name: Install the Python build dependencies
         # Both are for the natmod link: pyelftools reads the crate's ELF
-        # objects, and `ar` is how tools/ar_util.py opens a .a archive.
+        # objects, and `ar` is how tools/ar_util.py opens a .a archive. They
+        # are installed after the IDF step on purpose: that step puts its own
+        # venv on PATH, so `pip` and the `python3` the build then calls have to
+        # be the same interpreter, and they are only both the IDF one here.
         run: pip install pyelftools ar
-
-      - name: Build mpy-cross
-        run: make -C circuitpython/mpy-cross -j"$(nproc)"
 
       - name: Build lr2021.mpy
         working-directory: lr2021/natmod
